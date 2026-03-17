@@ -1,0 +1,27 @@
+{
+  "platform": "nodejs",
+  "tags": {
+    "default": {
+      "owner": "tomgebauer@dowjones.com",
+      "bu": "djcs",
+      "product": "dj_jotty",
+      "component": "web",
+      "environment": "dev",
+      "appid": "dj_jotty"
+    },
+    "prod": {
+      "environment": "prod"
+    },
+    "prod:preview": {
+      "environment": "stag"
+    },
+    "qa": {
+      "environment": "qa"
+    }
+  },
+  "assumeRoles": {
+    "default": [],
+    "prod": [],
+    "qa": []
+  }
+}
