@@ -1,0 +1,102 @@
+@import url('https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Source+Serif+4:wght@400;600;700&display=swap');
+
+/* --- Index DS Core Design Tokens (BASE_00 Theme) --- */
+:root {
+  /* Primary */
+  --primary-high: rgba(0, 78, 95, 1);
+  --primary-med: rgba(14, 103, 126, 1);
+  --primary-low: rgba(239, 250, 254, 1);
+  --primary-xlow: rgba(15, 112, 137, 0.12);
+
+  /* Content */
+  --content-contrast: rgba(11, 17, 24, 1);
+  --content-base: rgba(26, 34, 43, 1);
+  --content-subtle: rgba(119, 134, 148, 1);
+  --content-nonessential: rgba(192, 197, 203, 1);
+  --content-inverse: rgba(255, 255, 255, 1);
+
+  /* Surfaces */
+  --surface-background: rgba(255, 255, 255, 1);
+  --surface-neutral-xxlow: rgba(242, 244, 245, 1);
+  --surface-neutral-xlow: rgba(232, 235, 237, 1);
+  --surface-neutral-low: rgba(218, 222, 225, 1);
+  --surface-neutral-med: rgba(161, 173, 183, 1);
+  --surface-neutral-high: rgba(40, 51, 63, 1);
+  --surface-neutral-xhigh: rgba(11, 17, 24, 1);
+  --surface-floating: rgba(255, 255, 255, 1);
+
+  /* Action */
+  --action-primary-med: rgba(14, 103, 126, 1);
+  --action-primary-xlow: rgba(15, 112, 137, 0.12);
+  --action-primary-low: rgba(15, 112, 137, 0.16);
+  --action-focus: rgba(35, 128, 155, 1);
+  --action-disabled-low: rgba(232, 235, 237, 1);
+  --action-disabled-content: rgba(161, 173, 183, 1);
+  --action-negative-med: rgba(176, 0, 32, 1);
+  --action-positive-med: rgba(0, 123, 69, 1);
+
+  /* Semantic */
+  --positive: rgba(0, 123, 69, 1);
+  --negative: rgba(176, 0, 32, 1);
+  --attention: rgba(240, 192, 67, 1);
+
+  /* Shadows */
+  --shadow-bottom-low: 0px 1px 3px 0px rgba(0, 0, 0, 0.08);
+  --shadow-bottom-med: 0px 4px 8px 0px rgba(0, 0, 0, 0.12);
+  --shadow-bottom-high: 1px 6px 12px 0px rgba(0, 0, 0, 0.16);
+  --shadow-bottom-xhigh: 2px 12px 32px 2px rgba(0, 0, 0, 0.18);
+
+  /* Spacing */
+  --space-0: 0px;
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-6: 6px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-40: 40px;
+  --space-48: 48px;
+  --space-64: 64px;
+
+  /* Radius */
+  --radius-none: 0px;
+  --radius-xsmall: 4px;
+  --radius-small: 8px;
+  --radius-med: 12px;
+  --radius-large: 16px;
+  --radius-round: 999px;
+
+  /* Overlay */
+  --overlay-med: rgba(0, 0, 0, 0.4);
+  --overlay-high: rgba(0, 0, 0, 0.7);
+
+  /* Typography */
+  --font-primary: 'Public Sans', 'Noto Sans JP', 'Noto Sans SC', sans-serif;
+  --font-secondary: 'Source Serif 4', Georgia, serif;
+}
+
+/* --- Global Reset --- */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-primary);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+  background: var(--surface-neutral-xxlow);
+  color: var(--content-base);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
