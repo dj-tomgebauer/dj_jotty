@@ -3,3 +3,6 @@ dist
 .env
 uploads/
 server/jotty.db
+server/jotty.db-shm
+server/jotty.db-wal
+server/sessions.db
