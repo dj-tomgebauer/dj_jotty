@@ -212,6 +212,7 @@
   display: flex;
   flex-direction: column;
   height: calc(100vh - 52px);
+  overflow: hidden;
 }
 
 /* --- Toolbar (Index DS Core patterns) --- */
@@ -423,6 +424,11 @@
   align-items: flex-start;
   padding: var(--space-16);
   background: var(--surface-neutral-xlow);
+}
+
+/* Prevent iOS rubber-band scrolling and touch interference on canvas */
+.canvas-container-wrapper canvas {
+  touch-action: none;
 }
 
 /* --- Viewer Page --- */
@@ -748,4 +754,172 @@
   color: var(--content-subtle);
   font-size: 14px;
   font-weight: 500;
+}
+
+/* ============================================
+   RESPONSIVE — Mobile & Tablet
+   ============================================ */
+
+@media (max-width: 768px) {
+  /* --- App Header --- */
+  .app-header {
+    padding: var(--space-8) var(--space-12);
+  }
+
+  .app-header h1 {
+    font-size: 16px;
+  }
+
+  /* --- Editor Page --- */
+  .editor-page {
+    height: calc(100vh - 44px);
+    height: calc(100dvh - 44px);
+  }
+
+  /* --- Toolbar (mobile: compact, scrollable) --- */
+  .toolbar {
+    padding: var(--space-6) var(--space-8);
+    gap: var(--space-6);
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .toolbar-left,
+  .toolbar-right {
+    gap: var(--space-4);
+    flex-shrink: 0;
+  }
+
+  .toolbar .tool-group {
+    gap: var(--space-4);
+    flex-shrink: 0;
+  }
+
+  .toolbar button {
+    height: 36px;
+    padding: 0 var(--space-8);
+    font-size: 0;
+    gap: 0;
+    min-width: 36px;
+  }
+
+  .toolbar button svg,
+  .toolbar button > svg {
+    flex-shrink: 0;
+  }
+
+  /* Show text for action buttons only */
+  .toolbar .btn {
+    font-size: 11px;
+    padding: 0 var(--space-8);
+    height: 36px;
+  }
+
+  .toolbar .stroke-chevron {
+    width: 16px;
+    min-width: 16px;
+  }
+
+  .toolbar .separator {
+    height: 20px;
+    margin: 0 var(--space-2);
+  }
+
+  .toolbar .color-btn {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+  }
+
+  /* --- Canvas Wrapper (mobile: minimal padding, prevent scroll) --- */
+  .canvas-container-wrapper {
+    padding: var(--space-4);
+    overflow: hidden;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+
+  /* --- Viewer Page --- */
+  .viewer-page {
+    padding: var(--space-12);
+  }
+
+  .viewer-meta {
+    flex-direction: column;
+    padding: var(--space-12);
+  }
+
+  .viewer-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .viewer-actions .btn {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .viewer-canvas-wrapper {
+    padding: var(--space-8);
+  }
+
+  /* --- Library Page --- */
+  .library-page {
+    margin-top: var(--space-24);
+    padding: 0 var(--space-12);
+  }
+
+  .library-header h2 {
+    font-size: 24px;
+    line-height: 32px;
+  }
+
+  .library-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: var(--space-12);
+  }
+
+  /* --- Upload Page --- */
+  .upload-page {
+    margin: var(--space-24) auto;
+    padding: 0 var(--space-12);
+  }
+
+  .upload-page h2 {
+    font-size: 24px;
+    line-height: 32px;
+  }
+
+  .drop-zone {
+    padding: var(--space-32) var(--space-16);
+  }
+
+  /* --- Dialog --- */
+  .dialog {
+    width: calc(100vw - 32px);
+    padding: var(--space-16);
+  }
+
+  .dialog h3 {
+    font-size: 20px;
+    line-height: 24px;
+  }
+}
+
+@media (max-width: 480px) {
+  .library-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: var(--space-8);
+  }
+
+  .viewer-actions {
+    gap: var(--space-4);
+  }
+
+  .viewer-actions .btn {
+    font-size: 12px;
+    padding: 0 var(--space-8);
+    height: 36px;
+  }
 }

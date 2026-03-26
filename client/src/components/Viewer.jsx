@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import * as fabric from 'fabric'
 
 const CANVAS_PADDING = 200
+const isMobile = () => window.innerWidth <= 768
 
 const createArrowLine = (coords, options, arrowStyle = 'end') => {
   const line = new fabric.Line(coords, options)
@@ -68,8 +69,13 @@ export default function Viewer() {
   const [showForkDialog, setShowForkDialog] = useState(false)
   const [forkName, setForkName] = useState('')
   const [includeAnnotations, setIncludeAnnotations] = useState(false)
-  const [screenSize, setScreenSize] = useState(true)
+  const [screenSize, setScreenSize] = useState(() => {
+    const stored = localStorage.getItem('jotty-screen-size')
+    if (stored) return stored === '1x'
+    return true // default, will be overridden by HiDPI detection on image load
+  })
   const [naturalW, setNaturalW] = useState(null)
+  const screenSizeInitRef = useRef(false)
 
   useEffect(() => {
     fetch(`/api/snaps/${id}`)
@@ -78,7 +84,7 @@ export default function Viewer() {
       .catch(() => navigate('/'))
   }, [id, navigate])
 
-  const initCanvas = (annotations) => {
+  const initCanvas = (annotations, storedCanvasWidth) => {
     const imgEl = imgRef.current
     if (!imgEl) return
 
@@ -106,46 +112,61 @@ export default function Viewer() {
     if (annotations && annotations.length > 0) {
       const P = CANVAS_PADDING
       const origin = { originX: 'left', originY: 'top' }
+      // Scale from stored coordinate space to current display size
+      const refW = storedCanvasWidth || imgEl.naturalWidth || imgW
+      const s = imgW / refW
       annotations.forEach(ann => {
         let obj = null
         if (ann.type === 'text') {
           obj = new fabric.IText(ann.text || '', {
             ...origin,
-            left: ann.left + P, top: ann.top + P,
-            fontSize: ann.fontSize || 16, fill: ann.fill || '#FF0000',
+            left: ann.left * s + P, top: ann.top * s + P,
+            fontSize: (ann.fontSize || 16) * s, fill: ann.fill || '#FF0000',
             fontFamily: ann.fontFamily || 'Inter, system-ui, sans-serif',
             editable: false,
           })
         } else if (ann.type === 'rectangle') {
           obj = new fabric.Rect({
             ...origin,
-            left: ann.left + P, top: ann.top + P, width: ann.width, height: ann.height,
+            left: ann.left * s + P, top: ann.top * s + P,
+            width: ann.width * s, height: ann.height * s,
             stroke: ann.stroke, strokeWidth: ann.strokeWidth, fill: ann.fill || 'transparent',
             strokeUniform: true,
           })
         } else if (ann.type === 'circle') {
           obj = new fabric.Ellipse({
             ...origin,
-            left: ann.left + P, top: ann.top + P, rx: ann.rx || ann.radius, ry: ann.ry || ann.radius,
+            left: ann.left * s + P, top: ann.top * s + P,
+            rx: (ann.rx || ann.radius) * s, ry: (ann.ry || ann.radius) * s,
             stroke: ann.stroke, strokeWidth: ann.strokeWidth, fill: ann.fill || 'transparent',
             strokeUniform: true,
           })
         } else if (ann.type === 'line') {
-          obj = new fabric.Line([ann.x1 + P, ann.y1 + P, ann.x2 + P, ann.y2 + P], {
+          obj = new fabric.Line([ann.x1 * s + P, ann.y1 * s + P, ann.x2 * s + P, ann.y2 * s + P], {
             ...origin,
             stroke: ann.stroke, strokeWidth: ann.strokeWidth,
             strokeUniform: true,
           })
         } else if (ann.type === 'arrow') {
-          obj = createArrowLine([ann.x1 + P, ann.y1 + P, ann.x2 + P, ann.y2 + P], {
+          obj = createArrowLine([ann.x1 * s + P, ann.y1 * s + P, ann.x2 * s + P, ann.y2 * s + P], {
             ...origin,
             stroke: ann.stroke, strokeWidth: ann.strokeWidth,
             strokeUniform: true,
           }, ann.arrowStyle)
+        } else if (ann.type === 'draw') {
+          obj = new fabric.Path(ann.path, {
+            ...origin,
+            left: ann.left * s + P, top: ann.top * s + P,
+            scaleX: s, scaleY: s,
+            stroke: ann.stroke, strokeWidth: ann.strokeWidth,
+            fill: ann.fill || '',
+            strokeLineCap: 'round', strokeLineJoin: 'round',
+          })
         } else if (ann.type === 'highlight') {
           obj = new fabric.Rect({
             ...origin,
-            left: ann.left + P, top: ann.top + P, width: ann.width, height: ann.height,
+            left: ann.left * s + P, top: ann.top * s + P,
+            width: ann.width * s, height: ann.height * s,
             fill: ann.fill || 'rgba(255, 255, 0, 0.3)', stroke: '', strokeWidth: 0,
           })
         }
@@ -165,9 +186,29 @@ export default function Viewer() {
     const imgEl = imgRef.current
     if (!imgEl) return
 
-    setNaturalW(imgEl.naturalWidth)
-    initCanvas(snap?.annotations)
+    const nw = imgEl.naturalWidth
+
+    // Auto-detect HiDPI: if no user preference and image is wide, default to 1x (half size)
+    if (!screenSizeInitRef.current && !localStorage.getItem('jotty-screen-size')) {
+      screenSizeInitRef.current = true
+      const isHiDPI = nw > 2000
+      setScreenSize(isHiDPI)
+    }
+
+    setNaturalW(nw)
   }
+
+  // Initialize canvas after image dimensions are known and React has rendered at correct size
+  useEffect(() => {
+    if (!naturalW || fabricRef.current || !snap) return
+    const imgEl = imgRef.current
+    if (!imgEl) return
+
+    const frame = requestAnimationFrame(() => {
+      initCanvas(snap.annotations, snap.canvas_width)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [naturalW, snap, screenSize])
 
   const handleToggleSize = () => {
     if (fabricRef.current) {
@@ -175,10 +216,10 @@ export default function Viewer() {
       fabricRef.current = null
     }
 
-    setScreenSize(prev => !prev)
-
-    requestAnimationFrame(() => {
-      initCanvas(snap?.annotations)
+    setScreenSize(prev => {
+      const next = !prev
+      localStorage.setItem('jotty-screen-size', next ? '1x' : '2x')
+      return next
     })
   }
 
@@ -212,12 +253,16 @@ export default function Viewer() {
 
   if (!snap) return <div className="loading">Loading...</div>
 
+  const mobile = isMobile()
+
   const imgStyle = {
     display: 'block',
     maxWidth: '100%',
     height: 'auto',
   }
-  if (screenSize && naturalW) {
+  if (mobile) {
+    imgStyle.width = '100%'
+  } else if (screenSize && naturalW) {
     imgStyle.width = `${Math.round(naturalW / 2)}px`
   }
 
@@ -240,12 +285,16 @@ export default function Viewer() {
           )}
         </div>
         <div className="viewer-actions">
-          <button className={`btn ${screenSize ? 'active' : ''}`} onClick={() => !screenSize && handleToggleSize()}>
-            1x
-          </button>
-          <button className={`btn ${!screenSize ? 'active' : ''}`} onClick={() => screenSize && handleToggleSize()}>
-            2x
-          </button>
+          {!mobile && (
+            <>
+              <button className={`btn ${screenSize ? 'active' : ''}`} onClick={() => !screenSize && handleToggleSize()}>
+                1x
+              </button>
+              <button className={`btn ${!screenSize ? 'active' : ''}`} onClick={() => screenSize && handleToggleSize()}>
+                2x
+              </button>
+            </>
+          )}
           <button className="btn btn-primary" onClick={() => setShowForkDialog(true)}>Fork</button>
           <button className="btn btn-secondary" onClick={() => navigate(`/snap/${id}/edit`)}>Edit</button>
         </div>

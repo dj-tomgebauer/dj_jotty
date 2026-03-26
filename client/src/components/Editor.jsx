@@ -8,6 +8,7 @@ import {
   LineSegmentIcon,
   ArrowUpRightIcon,
   HighlighterIcon,
+  PencilSimpleIcon,
   TextTIcon,
   LinkIcon,
   EyeIcon,
@@ -15,9 +16,10 @@ import {
 } from '@phosphor-icons/react'
 
 const CANVAS_PADDING = 200
+const isMobile = () => window.innerWidth <= 768
 const COLORS = ['#FF0000', '#0066FF', '#00CC44', '#FF9900', '#9933FF', '#000000']
 const STROKE_WIDTHS = [1, 2, 4]
-const STROKE_TOOLS = new Set(['rectangle', 'circle', 'line', 'arrow'])
+const STROKE_TOOLS = new Set(['rectangle', 'circle', 'line', 'arrow', 'draw'])
 
 const TOOLS = {
   select:    { label: 'Select',  icon: CursorIcon },
@@ -25,16 +27,19 @@ const TOOLS = {
   circle:    { label: 'Circle',  icon: CircleIcon },
   line:      { label: 'Line',    icon: LineSegmentIcon },
   arrow:     { label: 'Arrow',   icon: ArrowUpRightIcon },
+  draw:      { label: 'Draw',    icon: PencilSimpleIcon },
   highlight: { label: 'Hilite',  icon: HighlighterIcon },
   text:      { label: 'Text',    icon: TextTIcon },
 }
 
 const TOOL_SHORTCUTS = {
-  s: 'select',
+  v: 'select',
+  s: 'rectangle',
   r: 'rectangle',
   c: 'circle',
   l: 'line',
   a: 'arrow',
+  d: 'draw',
   h: 'highlight',
   t: 'text',
 }
@@ -113,14 +118,20 @@ export default function Editor() {
   const [copied, setCopied] = useState(false)
   const [copiedImage, setCopiedImage] = useState(false)
   const saveTimerRef = useRef(null)
-  const [screenSize, setScreenSize] = useState(true)
+  const [screenSize, setScreenSize] = useState(() => {
+    const stored = localStorage.getItem('jotty-screen-size')
+    if (stored) return stored === '1x'
+    return true // default, will be overridden by HiDPI detection on image load
+  })
   const [naturalW, setNaturalW] = useState(null)
+  const screenSizeInitRef = useRef(false)
   const isDrawingRef = useRef(false)
   const startPointRef = useRef(null)
   const activeShapeRef = useRef(null)
   const canvasPadRef = useRef({ x: CANVAS_PADDING, y: CANVAS_PADDING })
   const undoStackRef = useRef([])
   const pendingToggleRef = useRef(null)
+  const cmdHeldRef = useRef(false)
 
   // Apply property changes to selected canvas objects
   const applyToSelection = ({ color, strokeWidth, arrowStyle }) => {
@@ -164,7 +175,7 @@ export default function Editor() {
       .catch(() => navigate('/'))
   }, [id, navigate])
 
-  const initCanvas = (annotations, explicitW, explicitH) => {
+  const initCanvas = (annotations, explicitW, explicitH, storedCanvasWidth) => {
     const imgEl = imgRef.current
     const wrapper = wrapperRef.current
     if (!imgEl || !wrapper) return
@@ -174,10 +185,13 @@ export default function Editor() {
     if (!imgW || !imgH) return
 
     // Compute padding so canvas fills at least the full visible wrapper area
+    // On mobile, use minimal padding since image fills the screen
+    const mobile = isMobile()
     const wW = wrapper.clientWidth
     const wH = wrapper.clientHeight
-    const padX = Math.max(CANVAS_PADDING, Math.ceil((wW - imgW) / 2) + 50)
-    const padY = Math.max(CANVAS_PADDING, Math.ceil((wH - imgH) / 2) + 50)
+    const basePad = mobile ? 20 : CANVAS_PADDING
+    const padX = Math.max(basePad, Math.ceil((wW - imgW) / 2) + (mobile ? 10 : 50))
+    const padY = Math.max(basePad, Math.ceil((wH - imgH) / 2) + (mobile ? 10 : 50))
     canvasPadRef.current = { x: padX, y: padY }
 
     const canvas = new fabric.Canvas(canvasRef.current, {
@@ -197,7 +211,12 @@ export default function Editor() {
 
     canvas.calcOffset()
 
+    // Prevent touch scrolling on canvas elements (needed for mobile drawing)
+    if (canvas.upperCanvasEl) canvas.upperCanvasEl.style.touchAction = 'none'
+    if (canvas.lowerCanvasEl) canvas.lowerCanvasEl.style.touchAction = 'none'
+
     canvas.on('object:modified', () => triggerAutosave())
+    canvas.on('path:created', () => { undoStackRef.current = []; triggerAutosave() })
     canvas.on('text:editing:exited', () => {
       if (document.activeElement && document.activeElement.tagName === 'TEXTAREA') {
         document.activeElement.blur()
@@ -205,7 +224,7 @@ export default function Editor() {
     })
 
     if (annotations && annotations.length > 0) {
-      loadAnnotations(canvas, annotations)
+      loadAnnotations(canvas, annotations, storedCanvasWidth)
     }
 
     canvas.renderAll()
@@ -214,7 +233,17 @@ export default function Editor() {
   const handleImageLoad = () => {
     if (fabricRef.current) return
     const imgEl = imgRef.current
-    if (imgEl) setNaturalW(imgEl.naturalWidth)
+    if (!imgEl) return
+
+    const nw = imgEl.naturalWidth
+    // Auto-detect HiDPI: if no user preference and image is wide, default to 1x (half size)
+    // If image is narrow (likely 1x capture), default to 2x (full size)
+    if (!screenSizeInitRef.current && !localStorage.getItem('jotty-screen-size')) {
+      screenSizeInitRef.current = true
+      const isHiDPI = nw > 2000
+      setScreenSize(isHiDPI) // true = 1x (half), false = 2x (full)
+    }
+    setNaturalW(nw)
   }
 
   // Initialize canvas AFTER React has rendered the image at its correct size.
@@ -226,44 +255,18 @@ export default function Editor() {
     if (!imgEl) return
 
     const frame = requestAnimationFrame(() => {
-      // Check for pending toggle (annotation scaling)
+      const w = imgEl.clientWidth
+      const h = imgEl.clientHeight
+      if (!w || !h) return
+
       if (pendingToggleRef.current) {
-        const { annotations, oldW } = pendingToggleRef.current
+        // Toggle: annotations already in natural space from serializeAnnotations()
+        const { annotations } = pendingToggleRef.current
         pendingToggleRef.current = null
-        const newW = imgEl.clientWidth
-        const newH = imgEl.clientHeight
-        if (!newW || !newH) return
-        const ratio = newW / oldW
-        const scaledAnnotations = annotations.map(ann => {
-          const scaled = { ...ann }
-          if (ann.type === 'text') {
-            scaled.left = ann.left * ratio
-            scaled.top = ann.top * ratio
-            scaled.fontSize = (ann.fontSize || 16) * ratio
-          } else if (ann.type === 'line' || ann.type === 'arrow') {
-            scaled.x1 = ann.x1 * ratio
-            scaled.y1 = ann.y1 * ratio
-            scaled.x2 = ann.x2 * ratio
-            scaled.y2 = ann.y2 * ratio
-          } else if (ann.type === 'circle') {
-            scaled.left = ann.left * ratio
-            scaled.top = ann.top * ratio
-            scaled.rx = ann.rx * ratio
-            scaled.ry = ann.ry * ratio
-          } else {
-            scaled.left = ann.left * ratio
-            scaled.top = ann.top * ratio
-            scaled.width = ann.width * ratio
-            scaled.height = ann.height * ratio
-          }
-          return scaled
-        })
-        initCanvas(scaledAnnotations, newW, newH)
+        initCanvas(annotations, w, h, naturalW)
       } else {
-        // Initial load
-        const w = imgEl.clientWidth
-        const h = imgEl.clientHeight
-        if (w && h) initCanvas(snap.annotations, w, h)
+        // Initial load: use stored canvas_width for correct scaling
+        initCanvas(snap.annotations, w, h, snap.canvas_width)
       }
     })
     return () => cancelAnimationFrame(frame)
@@ -281,13 +284,9 @@ export default function Editor() {
   }, [])
 
   const handleToggleSize = () => {
-    const imgEl = imgRef.current
-    if (!imgEl) return
-
-    // Save state before disposing
+    // Serialize to natural space before disposing
     pendingToggleRef.current = {
       annotations: serializeAnnotations(),
-      oldW: imgEl.clientWidth || 1,
     }
 
     if (fabricRef.current) {
@@ -296,7 +295,11 @@ export default function Editor() {
     }
 
     // Toggle — React will re-render with new imgStyle, then useEffect inits canvas
-    setScreenSize(prev => !prev)
+    setScreenSize(prev => {
+      const next = !prev
+      localStorage.setItem('jotty-screen-size', next ? '1x' : '2x')
+      return next
+    })
   }
 
   // Keyboard shortcuts
@@ -398,12 +401,73 @@ export default function Editor() {
 
   const clipboardRef = useRef(null)
 
+  // Hold Cmd/Ctrl to temporarily switch to select mode while drawing
+  useEffect(() => {
+    const canvas = fabricRef.current
+    if (!canvas) return
+
+    const enableSelect = () => {
+      canvas.isDrawingMode = false
+      canvas.selection = true
+      canvas.forEachObject(obj => { obj.selectable = true; obj.evented = true })
+      canvas.defaultCursor = 'default'
+    }
+
+    const restoreTool = () => {
+      canvas.isDrawingMode = activeTool === 'draw'
+      canvas.selection = activeTool === 'select'
+      const sel = activeTool === 'select'
+      canvas.forEachObject(obj => { obj.selectable = sel; obj.evented = sel })
+      canvas.defaultCursor = activeTool === 'select' ? 'default' : activeTool === 'text' ? 'text' : 'crosshair'
+    }
+
+    const onKeyDown = (e) => {
+      if (e.key === 'Meta' || e.key === 'Control') {
+        if (activeTool !== 'select' && !cmdHeldRef.current) {
+          cmdHeldRef.current = true
+          enableSelect()
+        }
+      }
+    }
+
+    const onKeyUp = (e) => {
+      if (e.key === 'Meta' || e.key === 'Control') {
+        if (cmdHeldRef.current) {
+          cmdHeldRef.current = false
+          restoreTool()
+        }
+      }
+    }
+
+    // Also clear on blur (in case key release happens while window unfocused)
+    const onBlur = () => {
+      if (cmdHeldRef.current) {
+        cmdHeldRef.current = false
+        restoreTool()
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [activeTool])
+
   // Update drawing mode when tool changes
   useEffect(() => {
     const canvas = fabricRef.current
     if (!canvas) return
 
-    canvas.isDrawingMode = false
+    canvas.isDrawingMode = activeTool === 'draw'
+    if (activeTool === 'draw') {
+      canvas.freeDrawingBrush = new fabric.PencilBrush(canvas)
+      canvas.freeDrawingBrush.color = activeColor
+      canvas.freeDrawingBrush.width = activeStrokeWidth
+    }
     canvas.selection = activeTool === 'select'
     canvas.forEachObject(obj => {
       obj.selectable = activeTool === 'select'
@@ -414,7 +478,7 @@ export default function Editor() {
       canvas.defaultCursor = 'text'
     }
     canvas.renderAll()
-  }, [activeTool])
+  }, [activeTool, activeColor, activeStrokeWidth])
 
   // Mouse event handlers for shape drawing
   useEffect(() => {
@@ -425,11 +489,32 @@ export default function Editor() {
 
     const getPointer = (e) => {
       const rect = el.getBoundingClientRect()
-      return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+      const touch = e.touches?.[0] || e.changedTouches?.[0]
+      const clientX = touch ? touch.clientX : e.clientX
+      const clientY = touch ? touch.clientY : e.clientY
+      return { x: clientX - rect.left, y: clientY - rect.top }
+    }
+
+    const onTouchStart = (e) => {
+      if (activeTool === 'select' || activeTool === 'draw') return
+      // Prevent scroll while drawing
+      e.preventDefault()
+      onMouseDown(e)
+    }
+
+    const onTouchMove = (e) => {
+      if (!isDrawingRef.current) return
+      e.preventDefault()
+      onMouseMove(e)
+    }
+
+    const onTouchEnd = (e) => {
+      onMouseUp(e)
     }
 
     const onMouseDown = (e) => {
-      if (activeTool === 'select') return
+      if (activeTool === 'select' || activeTool === 'draw') return
+      if (cmdHeldRef.current) return
 
       // Text tool: place IText on click
       if (activeTool === 'text') {
@@ -554,57 +639,81 @@ export default function Editor() {
     el.addEventListener('mousedown', onMouseDown)
     document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('mouseup', onMouseUp)
+    el.addEventListener('touchstart', onTouchStart, { passive: false })
+    document.addEventListener('touchmove', onTouchMove, { passive: false })
+    document.addEventListener('touchend', onTouchEnd)
 
     return () => {
       el.removeEventListener('mousedown', onMouseDown)
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
+      el.removeEventListener('touchstart', onTouchStart)
+      document.removeEventListener('touchmove', onTouchMove)
+      document.removeEventListener('touchend', onTouchEnd)
     }
   }, [activeTool, activeColor, activeStrokeWidth, activeArrowStyle])
 
-  const loadAnnotations = (canvas, annotations) => {
+  const loadAnnotations = (canvas, annotations, storedCanvasWidth) => {
     const { x: PX, y: PY } = canvasPadRef.current
     const origin = { originX: 'left', originY: 'top' }
+    const imgEl = imgRef.current
+    const displayW = imgEl?.clientWidth || 1
+    // Scale from stored coordinate space to current display size
+    // storedCanvasWidth is naturalWidth for new saves, or old display width for legacy
+    const refW = storedCanvasWidth || imgEl?.naturalWidth || displayW
+    const s = displayW / refW
     annotations.forEach(ann => {
       let obj = null
       if (ann.type === 'text') {
         obj = new fabric.IText(ann.text || '', {
           ...origin,
-          left: ann.left + PX, top: ann.top + PY,
-          fontSize: ann.fontSize || 16, fill: ann.fill || '#FF0000',
+          left: ann.left * s + PX, top: ann.top * s + PY,
+          fontSize: (ann.fontSize || 16) * s, fill: ann.fill || '#FF0000',
           fontFamily: ann.fontFamily || 'Inter, system-ui, sans-serif',
           editable: true,
         })
       } else if (ann.type === 'rectangle') {
         obj = new fabric.Rect({
           ...origin,
-          left: ann.left + PX, top: ann.top + PY, width: ann.width, height: ann.height,
+          left: ann.left * s + PX, top: ann.top * s + PY,
+          width: ann.width * s, height: ann.height * s,
           stroke: ann.stroke, strokeWidth: ann.strokeWidth, fill: ann.fill || 'transparent',
           strokeUniform: true,
         })
       } else if (ann.type === 'circle') {
         obj = new fabric.Ellipse({
           ...origin,
-          left: ann.left + PX, top: ann.top + PY, rx: ann.rx || ann.radius, ry: ann.ry || ann.radius,
+          left: ann.left * s + PX, top: ann.top * s + PY,
+          rx: (ann.rx || ann.radius) * s, ry: (ann.ry || ann.radius) * s,
           stroke: ann.stroke, strokeWidth: ann.strokeWidth, fill: ann.fill || 'transparent',
           strokeUniform: true,
         })
       } else if (ann.type === 'line') {
-        obj = new fabric.Line([ann.x1 + PX, ann.y1 + PY, ann.x2 + PX, ann.y2 + PY], {
+        obj = new fabric.Line([ann.x1 * s + PX, ann.y1 * s + PY, ann.x2 * s + PX, ann.y2 * s + PY], {
           ...origin,
           stroke: ann.stroke, strokeWidth: ann.strokeWidth,
           strokeUniform: true,
         })
       } else if (ann.type === 'arrow') {
-        obj = createArrowLine([ann.x1 + PX, ann.y1 + PY, ann.x2 + PX, ann.y2 + PY], {
+        obj = createArrowLine([ann.x1 * s + PX, ann.y1 * s + PY, ann.x2 * s + PX, ann.y2 * s + PY], {
           ...origin,
           stroke: ann.stroke, strokeWidth: ann.strokeWidth,
           strokeUniform: true,
         }, ann.arrowStyle)
+      } else if (ann.type === 'draw') {
+        obj = new fabric.Path(ann.path, {
+          ...origin,
+          left: ann.left * s + PX, top: ann.top * s + PY,
+          scaleX: s, scaleY: s,
+          stroke: ann.stroke, strokeWidth: ann.strokeWidth,
+          fill: ann.fill || '',
+          strokeLineCap: 'round', strokeLineJoin: 'round',
+        })
       } else if (ann.type === 'highlight') {
         obj = new fabric.Rect({
           ...origin,
-          left: ann.left + PX, top: ann.top + PY, width: ann.width, height: ann.height,
+          left: ann.left * s + PX, top: ann.top * s + PY,
+          width: ann.width * s, height: ann.height * s,
           fill: ann.fill || 'rgba(255, 255, 0, 0.3)', stroke: '', strokeWidth: 0,
         })
       }
@@ -613,23 +722,40 @@ export default function Editor() {
     canvas.renderAll()
   }
 
-  const serializeAnnotations = () => {
+  const serializeAnnotations = (forToggle = false) => {
     const canvas = fabricRef.current
     if (!canvas) return []
     const { x: PX, y: PY } = canvasPadRef.current
+    const imgEl = imgRef.current
+    // Normalize to natural image dimensions for storage
+    // For toggle (transient), skip normalization — we'll re-normalize on load
+    const displayW = imgEl?.clientWidth || 1
+    const natW = imgEl?.naturalWidth || displayW
+    const s = forToggle ? 1 : natW / displayW
     return canvas.getObjects().map(obj => {
+      if (obj instanceof fabric.Path) {
+        return {
+          type: 'draw',
+          path: obj.path,
+          left: (obj.left - PX) * s, top: (obj.top - PY) * s,
+          width: obj.width * s, height: obj.height * s,
+          stroke: obj.stroke, strokeWidth: obj.strokeWidth,
+          fill: obj.fill,
+        }
+      }
       if (obj instanceof fabric.IText) {
         return {
           type: 'text',
-          left: obj.left - PX, top: obj.top - PY,
-          text: obj.text, fontSize: obj.fontSize, fill: obj.fill,
+          left: (obj.left - PX) * s, top: (obj.top - PY) * s,
+          text: obj.text, fontSize: obj.fontSize * s, fill: obj.fill,
           fontFamily: obj.fontFamily,
         }
       }
       if (obj instanceof fabric.Line) {
         const data = {
           type: obj._isArrow ? 'arrow' : 'line',
-          x1: obj.x1 - PX, y1: obj.y1 - PY, x2: obj.x2 - PX, y2: obj.y2 - PY,
+          x1: (obj.x1 - PX) * s, y1: (obj.y1 - PY) * s,
+          x2: (obj.x2 - PX) * s, y2: (obj.y2 - PY) * s,
           stroke: obj.stroke, strokeWidth: obj.strokeWidth,
         }
         if (obj._isArrow && obj._arrowStyle && obj._arrowStyle !== 'end') {
@@ -641,14 +767,16 @@ export default function Editor() {
       if (obj instanceof fabric.Ellipse) {
         return {
           type: 'circle',
-          left: obj.left - PX, top: obj.top - PY, rx: obj.rx, ry: obj.ry,
+          left: (obj.left - PX) * s, top: (obj.top - PY) * s,
+          rx: obj.rx * s, ry: obj.ry * s,
           stroke: obj.stroke, strokeWidth: obj.strokeWidth,
           fill: obj.fill || 'transparent',
         }
       }
       return {
         type: isHighlight ? 'highlight' : 'rectangle',
-        left: obj.left - PX, top: obj.top - PY, width: obj.width, height: obj.height,
+        left: (obj.left - PX) * s, top: (obj.top - PY) * s,
+        width: obj.width * s, height: obj.height * s,
         stroke: obj.stroke || '', strokeWidth: obj.strokeWidth || 0,
         fill: obj.fill || 'transparent',
       }
@@ -661,14 +789,14 @@ export default function Editor() {
       setSaveStatus('saving')
       try {
         const annotations = serializeAnnotations()
-        const canvas = fabricRef.current
+        const imgEl = imgRef.current
         const res = await fetch(`/api/snaps/${id}/annotations`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             annotations,
-            canvas_width: imgRef.current?.clientWidth || canvas?.width,
-            canvas_height: imgRef.current?.clientHeight || canvas?.height,
+            canvas_width: imgEl?.naturalWidth || null,
+            canvas_height: imgEl?.naturalHeight || null,
           }),
         })
         if (!res.ok) throw new Error()
@@ -757,12 +885,17 @@ export default function Editor() {
 
   if (!snap) return <div className="loading">Loading...</div>
 
+  const mobile = isMobile()
+
   const imgStyle = {
     display: 'block',
     maxWidth: '100%',
     height: 'auto',
   }
-  if (screenSize && naturalW) {
+  if (mobile) {
+    // On mobile, always fit to viewport width
+    imgStyle.width = '100%'
+  } else if (screenSize && naturalW) {
     imgStyle.width = `${Math.round(naturalW / 2)}px`
   }
 
@@ -771,7 +904,7 @@ export default function Editor() {
       <div className="toolbar">
         <div className="toolbar-left">
           <div className="tool-group">
-            {['select', 'rectangle', 'circle', 'line', 'arrow', 'highlight', 'text'].map(tool => {
+            {['select', 'rectangle', 'circle', 'line', 'arrow', 'draw', 'highlight', 'text'].map(tool => {
               const { label, icon: Icon } = TOOLS[tool]
               const hasStroke = STROKE_TOOLS.has(tool)
               const isActive = activeTool === tool
@@ -878,12 +1011,16 @@ export default function Editor() {
             <button className="btn btn-secondary" onClick={() => navigate(`/snap/${id}`)}>
               <EyeIcon size={16} weight="bold" /> View
             </button>
-            <button className={screenSize ? 'active' : ''} onClick={() => !screenSize && handleToggleSize()}>
-              1x
-            </button>
-            <button className={!screenSize ? 'active' : ''} onClick={() => screenSize && handleToggleSize()}>
-              2x
-            </button>
+            {!mobile && (
+              <>
+                <button className={screenSize ? 'active' : ''} onClick={() => !screenSize && handleToggleSize()}>
+                  1x
+                </button>
+                <button className={!screenSize ? 'active' : ''} onClick={() => screenSize && handleToggleSize()}>
+                  2x
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
