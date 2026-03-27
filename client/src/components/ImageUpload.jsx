@@ -5,7 +5,6 @@ import SnapCard from './SnapCard'
 export default function ImageUpload() {
   const [file, setFile] = useState(null)
   const [preview, setPreview] = useState(null)
-  const [creatorName, setCreatorName] = useState('')
   const [sourceUrl, setSourceUrl] = useState('')
   const [sourceNotes, setSourceNotes] = useState('')
   const [uploading, setUploading] = useState(false)
@@ -51,12 +50,11 @@ export default function ImageUpload() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!file || !creatorName.trim()) return
+    if (!file) return
 
     setUploading(true)
     const formData = new FormData()
     formData.append('image', file)
-    formData.append('creator_name', creatorName.trim())
     if (sourceUrl.trim()) formData.append('source_url', sourceUrl.trim())
     if (sourceNotes.trim()) formData.append('source_notes', sourceNotes.trim())
 
@@ -103,16 +101,6 @@ export default function ImageUpload() {
 
       <form className="upload-form" onSubmit={handleSubmit}>
         <label>
-          Your Name *
-          <input
-            type="text"
-            value={creatorName}
-            onChange={(e) => setCreatorName(e.target.value)}
-            placeholder="e.g. Jane Smith"
-            required
-          />
-        </label>
-        <label>
           Source URL
           <input
             type="text"
@@ -132,7 +120,7 @@ export default function ImageUpload() {
         <button
           type="submit"
           className="btn btn-primary"
-          disabled={!file || !creatorName.trim() || uploading}
+          disabled={!file || uploading}
         >
           {uploading ? 'Uploading...' : 'Upload & Annotate'}
         </button>

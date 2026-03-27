@@ -63,14 +63,12 @@ router.post('/', upload.single('image'), (req, res) => {
 
   const id = uuidv4();
   const { creator_name, source_url, source_notes } = req.body;
-
-  if (!creator_name) {
-    return res.status(400).json({ error: 'creator_name is required' });
-  }
+  // Fall back to 'Anonymous' until login state provides a real name
+  const resolvedCreatorName = creator_name?.trim() || 'Anonymous';
 
   const image_path = `/uploads/${req.file.filename}`;
 
-  stmts.insertSnap.run(id, image_path, creator_name, source_url || null, source_notes || null);
+  stmts.insertSnap.run(id, image_path, resolvedCreatorName, source_url || null, source_notes || null);
 
   const snap = stmts.getSnap.get(id);
   res.status(201).json(snap);
