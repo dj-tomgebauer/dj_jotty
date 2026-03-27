@@ -56,7 +56,7 @@ router.get('/', (req, res) => {
 });
 
 // POST /api/snaps - Create a new snap
-router.post('/', requireAuth, upload.single('image'), (req, res) => {
+router.post('/', upload.single('image'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'Image file is required' });
   }
@@ -87,7 +87,7 @@ router.get('/:id', (req, res) => {
 });
 
 // PUT /api/snaps/:id/annotations - Update annotations
-router.put('/:id/annotations', requireAuth, (req, res) => {
+router.put('/:id/annotations', (req, res) => {
   const snap = stmts.getSnap.get(req.params.id);
   if (!snap) {
     return res.status(404).json({ error: 'Snap not found' });
@@ -104,7 +104,7 @@ router.put('/:id/annotations', requireAuth, (req, res) => {
 });
 
 // POST /api/snaps/:id/fork - Fork a snap
-router.post('/:id/fork', requireAuth, (req, res) => {
+router.post('/:id/fork', (req, res) => {
   const parent = db.prepare('SELECT * FROM snaps WHERE id = ?').get(req.params.id);
   if (!parent) {
     return res.status(404).json({ error: 'Snap not found' });
