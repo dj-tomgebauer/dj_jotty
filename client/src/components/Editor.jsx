@@ -16,7 +16,7 @@ import {
 } from '@phosphor-icons/react'
 
 const CANVAS_PADDING = 200
-const isMobile = () => window.innerWidth <= 768
+const MOBILE_BREAKPOINT = 768
 const COLORS = ['#FF0000', '#0066FF', '#00CC44', '#FF9900', '#9933FF', '#000000']
 const STROKE_WIDTHS = [1, 2, 4]
 const STROKE_TOOLS = new Set(['rectangle', 'circle', 'line', 'arrow', 'draw'])
@@ -128,10 +128,12 @@ export default function Editor() {
   const isDrawingRef = useRef(false)
   const startPointRef = useRef(null)
   const activeShapeRef = useRef(null)
+  const [mobile, setMobile] = useState(() => window.innerWidth <= MOBILE_BREAKPOINT)
   const canvasPadRef = useRef({ x: CANVAS_PADDING, y: CANVAS_PADDING })
   const undoStackRef = useRef([])
   const pendingToggleRef = useRef(null)
   const cmdHeldRef = useRef(false)
+  const clipboardRef = useRef(null)
 
   // Apply property changes to selected canvas objects
   const applyToSelection = ({ color, strokeWidth, arrowStyle }) => {
@@ -154,6 +156,13 @@ export default function Editor() {
     canvas.renderAll()
     triggerAutosave()
   }
+
+  // Keep mobile state in sync with window width
+  useEffect(() => {
+    const onResize = () => setMobile(window.innerWidth <= MOBILE_BREAKPOINT)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   // Close stroke menu on outside click
   useEffect(() => {
@@ -186,7 +195,7 @@ export default function Editor() {
 
     // Compute padding so canvas fills at least the full visible wrapper area
     // On mobile, use minimal padding since image fills the screen
-    const mobile = isMobile()
+    const mobile = window.innerWidth <= MOBILE_BREAKPOINT
     const wW = wrapper.clientWidth
     const wH = wrapper.clientHeight
     const basePad = mobile ? 20 : CANVAS_PADDING
@@ -397,9 +406,7 @@ export default function Editor() {
 
     document.addEventListener('keydown', onKeyDown, true)
     return () => document.removeEventListener('keydown', onKeyDown, true)
-  })
-
-  const clipboardRef = useRef(null)
+  }, [id])
 
   // Hold Cmd/Ctrl to temporarily switch to select mode while drawing
   useEffect(() => {
@@ -524,7 +531,7 @@ export default function Editor() {
           left: pointer.x, top: pointer.y,
           fontSize: 20,
           fill: activeColor,
-          fontFamily: 'Inter, system-ui, sans-serif',
+          fontFamily: 'Public Sans, system-ui, sans-serif',
           editable: true,
         })
         canvas.add(textObj)
@@ -584,6 +591,7 @@ export default function Editor() {
           left: pointer.x, top: pointer.y, width: 0, height: 0,
           fill: 'rgba(255, 255, 0, 0.3)', stroke: '', strokeWidth: 0,
         })
+        shape._isHighlight = true
       }
 
       if (shape) {
@@ -669,7 +677,7 @@ export default function Editor() {
           ...origin,
           left: ann.left * s + PX, top: ann.top * s + PY,
           fontSize: (ann.fontSize || 16) * s, fill: ann.fill || '#FF0000',
-          fontFamily: ann.fontFamily || 'Inter, system-ui, sans-serif',
+          fontFamily: ann.fontFamily || 'Public Sans, system-ui, sans-serif',
           editable: true,
         })
       } else if (ann.type === 'rectangle') {
@@ -716,6 +724,7 @@ export default function Editor() {
           width: ann.width * s, height: ann.height * s,
           fill: ann.fill || 'rgba(255, 255, 0, 0.3)', stroke: '', strokeWidth: 0,
         })
+        obj._isHighlight = true
       }
       if (obj) canvas.add(obj)
     })
@@ -763,7 +772,6 @@ export default function Editor() {
         }
         return data
       }
-      const isHighlight = !obj.stroke && obj.fill && obj.fill.includes('rgba')
       if (obj instanceof fabric.Ellipse) {
         return {
           type: 'circle',
@@ -774,7 +782,7 @@ export default function Editor() {
         }
       }
       return {
-        type: isHighlight ? 'highlight' : 'rectangle',
+        type: obj._isHighlight ? 'highlight' : 'rectangle',
         left: (obj.left - PX) * s, top: (obj.top - PY) * s,
         width: obj.width * s, height: obj.height * s,
         stroke: obj.stroke || '', strokeWidth: obj.strokeWidth || 0,
@@ -884,8 +892,6 @@ export default function Editor() {
   }
 
   if (!snap) return <div className="loading">Loading...</div>
-
-  const mobile = isMobile()
 
   const imgStyle = {
     display: 'block',
